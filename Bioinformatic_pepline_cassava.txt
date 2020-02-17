@@ -1,0 +1,110 @@
+#Bioinformatics pipeline for 16S rRNA/ITS amplifications sequencing analysis
+#QIIME (v1.9)
+echo "reads of cassava_project.fna: "
+grep ">" cassava_project.fna | wc -l
+parallel_align_seqs_pynast.py -i cassava_project.fna -o pynast_align_1/ -t core_set_aligned.fasta.imputed -a uclust -e 100
+cd pynast_align_1/
+echo "reads of cassava_project_aligned.fasta: "
+grep ">" cassava_project_aligned.fasta | wc -l
+echo "reads of cassava_project_failures.fasta: "
+grep ">" cassava_project_failures.fasta | wc -l
+sed 's/-//g' cassava_project_aligned.fasta > Seqs_neimeng_all_final_aligned_no_gap_cassava_project.fasta
+echo "reads of Seqs_neimeng_all_final_aligned_no_gap_cassava_project.fasta: "
+grep ">" Seqs_neimeng_all_final_aligned_no_gap_cassava_project.fasta | wc -l
+cp Seqs_neimeng_all_final_aligned_no_gap_cassava_project.fasta ../
+cd ..
+pick_otus.py -i Seqs_neimeng_all_final_aligned_no_gap_cassava_project.fasta -m uclust -s 1.00 -o 0.3uclust_otu_100/
+cd 0.3uclust_otu_100
+mv Seqs_neimeng_all_final_aligned_no_gap_cassava_project_clusters.uc uclust_otu_100_cluster.uc
+mv Seqs_neimeng_all_final_aligned_no_gap_cassava_project_otus.txt uclust_otu_100.txt
+mv Seqs_neimeng_all_final_aligned_no_gap_cassava_project_otus.log uclust_otu_100_log.txt
+pick_rep_set.py -i uclust_otu_100.txt -f ../Seqs_neimeng_all_final_aligned_no_gap_cassava_project.fasta -o uclust_otu_100_rep_set_first.fna
+wc -l uclust_otu_100.txt
+wc -l uclust_otu_100_rep_set_first.fna
+echo "reads of uclust_otu_100_rep_set_first.fna: "
+grep ">" uclust_otu_100_rep_set_first.fna |wc -l
+cd ..
+pick_otus.py -i 0.3uclust_otu_100/uclust_otu_100_rep_set_first.fna -s 0.97 -o 0.4uclust_otu_97/
+merge_otu_maps.py -i 0.3uclust_otu_100/uclust_otu_100.txt,0.4uclust_otu_97/uclust_otu_100_rep_set_first_otus.txt -o 0.4uclust_otu_97/uclust_otus_100_97_merged.txt
+pick_rep_set.py -i 0.4uclust_otu_97/uclust_otus_100_97_merged.txt -f Seqs_neimeng_all_final_aligned_no_gap_cassava_project.fasta -o uclust_otus_100_97_merged_rep_set.fasta
+mkdir 0.5rep_set
+mv uclust_otus_100_97_merged_rep_set.fasta 0.5rep_set/
+parallel_align_seqs_pynast.py -i 0.5rep_set/uclust_otus_100_97_merged_rep_set.fasta -o 0.5rep_set/ -t core_set_aligned.fasta.imputed -a uclust -e 100
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned.fasta.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned.fasta |wc -l
+echo "reads of uclust_otus_100_97_merged_rep_set.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set.fasta |wc -l
+cp core_set_aligned.fasta.imputed 0.5rep_set/
+cd 0.5rep_set/
+identify_chimeric_seqs.py -i uclust_otus_100_97_merged_rep_set_aligned.fasta -a core_set_aligned.fasta.imputed -o chimeric_seq.txt
+cd  ..
+filter_fasta.py -f 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned.fasta -o uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta -s 0.5rep_set/chimeric_seq.txt -n
+mv uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta 0.5rep_set/
+sed 's/-//g' 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta > 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta
+wc -l 0.5rep_set/chimeric_seq.txt
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta |wc -l
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta |wc -l
+parallel_assign_taxonomy_rdp.py -i 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta -o 0.6rdp_assigned_taxonomy/ -c 0.8
+make_otu_table.py -i 0.4uclust_otu_97/uclust_otus_100_97_merged.txt -o 0.6rdp_assigned_taxonomy/otu_table.txt -e 0.5rep_set/chimeric_seq.txt -t 0.6rdp_assigned_taxonomy/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap_tax_assignments.txt
+cd 0.6rdp_assigned_taxonomy/
+convert_biom.py -i otu_table.txt -o otu_table1.txt -b --header_key taxonomy
+max_reads=`awk -F "\t" '{for(i=2;i<NF;i++)a[i]+=$i}END{for(i=2;i<NF;i++)print a[i]}' otu_table1.txt | sort -n| tail -1`
+min_reads=`awk -F "\t" '{for(i=2;i<NF;i++)a[i]+=$i}END{for(i=2;i<NF;i++)print a[i]}' otu_table1.txt | sort -n| head -1`
+awk -F '\t' '{print $NF}' otu_table1.txt > taxonomy.txt
+cd ..
+filter_alignment.py -i 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta -o 0.7fasttree_phylogeny/ -m /home/qiime/lanemask_in_1s_and_0s  -g 0.9999999
+wc -l 0.7fasttree_phylogeny/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta 
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta: "
+grep ">" 0.7fasttree_phylogeny/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta |wc -l
+make_phylogeny.py -i 0.7fasttree_phylogeny/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta -o 0.7fasttree_phylogeny/fasttree.tre -l 0.7fasttree_phylogeny/fasttree.log -t fasttree
+multiple_rarefactions_even_depth.py -i 0.6rdp_assigned_taxonomy/otu_table.txt -o 0.8multiple_rarefactions_1000/ -d $min_reads -n 1000 -k
+cp zhuanhua.sh ./0.8multiple_rarefactions_1000
+cp merge.R ./0.8multiple_rarefactions_1000
+cd 0.8multiple_rarefactions_1000
+sed 's/[0-9][0-9][0-9][0-9]/'$min_reads'/g' zhuanhua.sh > zhuanhua1.sh
+sh zhuanhua1.sh
+Rscript merge.R
+head -n 2 rarefaction_0.txt > head.txt
+cat head.txt merge.txt > head_merge.txt
+paste -d "\t" head_merge.txt ../0.6rdp_assigned_taxonomy/taxonomy.txt > otu_table.taxonomy.txt
+convert_biom.py -i otu_table.taxonomy.txt -o otu_table.from_txt.biom --biom_table_type="otu table" --process_obs_metadata taxonomy
+mv otu_table.from_txt.biom ../
+cd ..
+beta_diversity_through_plots.py -i otu_table.from_txt.biom -m beta_diversity_mapping_file_20111111.txt -o beta_diversity/ -p beta_diversity_qiime_parameters.txt -t 0.7fasttree_phylogeny/fasttree.tre -a
+cd beta_diversity/
+mkdir 3d_plots_continuous/
+mkdir 3d_plots_discrete/
+mv *_3d_continuous/*/*.kin 3d_plots_continuous/
+mv *_3d_discrete/*/*.kin 3d_plots_discrete/
+mkdir distance_matrix/
+mkdir pcoa/
+mv *pc.txt pcoa/
+rm -fr *_3d_*/
+mkdir distance_matrix
+mv *_dm.txt distance_matrix/
+upgma_cluster.py -i distance_matrix/ -o upgma_cluster/
+cd ..
+parallel_multiple_rarefactions.py -i 0.6rdp_assigned_taxonomy/otu_table.txt -o 01.multiple_rare/ -m 10 -x $max_reads -s 100 -n 500 -O 30
+parallel_alpha_diversity.py -i 01.multiple_rare/ -o 02.alpha_div/ -m chao1,chao1_confidence,observed_species,shannon,simpson,PD_whole_tree -O 30 -t 0.7fasttree_phylogeny/fasttree.tre
+collate_alpha.py -i 02.alpha_div/ -o results/ -e 02.alpha_div/alpha_rarefaction_10_0.txt
+
+#Bioinformatics software for metagenomic sequencing analysis
+#Shotgun metagenomic sequencing data assembling
+Software: megahit
+Parameter:
+megahit -1 /ISP_metagenome/cleandata/MH1_1.fq -2 /ISP_metagenome/cleandata/MH1_2.fq -m 100000000000 -t 12 -o /ISP_metagenome/assemble/MH1 --min-contig-len 500
+
+#For metagenomic data taxonomy annotation
+Software: MetaPhlAn2
+Parameter:
+metaphlan2.py metagenome.fastq --bowtie2out metagenome.bowtie2.bz2 --nproc 5 --input_type fastq > profiled_metagenome.txt
+
+#For metagenomic data functional annotation
+Software: HUMAnN2
+Parameter:
+humann2 --threads 12 --input examples/demo.fasta --output $OUTPUT_DIR
+
+#For triming: FastQC
+#For host's genome removing: Bowtie2
